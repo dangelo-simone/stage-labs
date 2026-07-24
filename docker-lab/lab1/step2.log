@@ -1,0 +1,28 @@
+[simone@Atlas lab1]$ docker network create step2
+4877b70c560de32cbb83498b5f662eb0a4ad90d18ea028ea69671458220df041
+[simone@Atlas lab1]$ docker network ls
+NETWORK ID     NAME      DRIVER    SCOPE
+a9c30fc27a4c   bridge    bridge    local
+09a1fa79ed70   host      host      local
+5c7a109108ee   none      null      local
+4877b70c560d   step2     bridge    local
+[simone@Atlas lab1]$ docker run -d --env  MARIADB_ROOT_PASSWORD=example --env  MARIADB_USER=exampleuser --env MARIADB_PASSWORD=examplepass --env MARIADB_DATABASE=exampledb --name mariadb-nocompose --net step2 -v db-data:/var/lib/mysql mariadb
+ad21b232d1c1011cf8ed92778f0b927c569874ed6202bbb91fd37d9aa5f432ec
+[simone@Atlas lab1]$ docker ps
+CONTAINER ID   IMAGE     COMMAND                  CREATED         STATUS         PORTS      NAMES
+ad21b232d1c1   mariadb   "docker-entrypoint.s…"   9 seconds ago   Up 9 seconds   3306/tcp   mariadb-nocompose
+[simone@Atlas lab1]$ docker volume ls
+DRIVER    VOLUME NAME
+local     4f5358d9d7d8ae6e80f3ad622b4f6774f0351eb3f69c290a4803dd884b1a2faa
+local     26fb6e54e7e1d635bae6110ad840ed07488dfba467a169f4ba70e8fc554932d4
+local     db-data
+local     e3d06b3fe19a2a09543bbe0a237202c7c11baf65847781d346a5216d9aab7dd3
+local     lab1_db
+local     lab1_wordpress
+[simone@Atlas lab1]$ docker run -d -p8080:80 --name wordpress-nocompose --net step2 -v wordpress-data:/var/www/html/ --env WORDPRESS_DB_HOST=mariadb-nocompo
+se --env WORDPRESS_DB_USER=exampleuser --env WORDPRESS_DB_PASSWORD=examplepass --env WORDPRESS_DB_NAME=exampledb wordpress
+8d46ab667fe23cfa2b4e938c1d55ae59b6998cab30ac490ec7925e81de28e04c
+[simone@Atlas lab1]$ docker ps
+CONTAINER ID   IMAGE       COMMAND                  CREATED          STATUS          PORTS                                     NAMES
+8d46ab667fe2   wordpress   "docker-entrypoint.s…"   23 seconds ago   Up 22 seconds   0.0.0.0:8080->80/tcp, [::]:8080->80/tcp   wordpress-nocompose
+ad21b232d1c1   mariadb     "docker-entrypoint.s…"   30 minutes ago   Up 30 minutes   3306/tcp                                  mariadb-nocompose

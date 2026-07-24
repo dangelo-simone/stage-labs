@@ -1,0 +1,21 @@
+services:
+
+  wordpress:
+    image: my-wordpress:custom
+    restart: always
+    ports:
+      - 8080:80
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: exampleuser
+      WORDPRESS_DB_PASSWORD: examplepass
+      WORDPRESS_DB_NAME: exampledb
+
+  db:
+    image: my-mariadb:custom
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: example
+      MARIADB_USER: exampleuser
+      MARIADB_PASSWORD: examplepass
+      MARIADB_DATABASE: exampledb

@@ -1,0 +1,37 @@
+#compose della copia che ha stessi dati di partenza ma su volumi separati
+#ho fatto il dump come nel bonus
+#compose up con nuova porta
+#testo facendo modifiche solo sul sito che è su 8081 e controllo che non si aggiorni anche il sito su 8080: funziona
+
+
+services:
+
+  wordpress:
+    image: wordpress
+    restart: always
+    ports:
+      - 8081:80
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: exampleuser
+      WORDPRESS_DB_PASSWORD: examplepass
+      WORDPRESS_DB_NAME: exampledb
+    volumes:
+      - ./wp-content:/var/www/html/wp-content
+      - wordpress:/var/www/html
+
+  db:
+    image: mariadb
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: example
+      MARIADB_USER: exampleuser
+      MARIADB_PASSWORD: examplepass
+      MARIADB_DATABASE: exampledb
+    volumes:
+      - db:/var/lib/mysql
+      - ./exampledb.sql:/docker-entrypoint-initdb.d/exampledb.sql
+
+volumes:
+  wordpress:
+  db:

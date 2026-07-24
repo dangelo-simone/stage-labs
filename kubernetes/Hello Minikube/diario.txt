@@ -1,0 +1,61 @@
+installo minikube e kubectl
+
+minikube start
+
+creo la dashboard con minikube dashboard in un altro terminale
+di default la dashboard è accessibile solo dal network interno di Kubernetes, il comando dashboard crea un proxy temporaneo che la rende accessibile
+
+creo un deployment
+un deployment ha il compito di controllarela salute del pod (gruppo di container) e lo restarta se c'è bisogno. deployments gestiscono la creazione e la scalabilità dei pods
+
+kubectl create deployment hello-node --image=registry.k8s.io/e2e-test-images/agnhost:2.53 -- /agnhost netexec --http-port=8080
+
+kubectl get deployments
+mostra i deployments
+
+kubectl get pods
+mostra i pods
+
+kubectl get events
+log degli eventi
+
+kubectl config view
+mostra config di kubectl
+
+kubectl logs podname
+mostra log del pod
+
+warning: non esporre /shell endpoint in un servizio cluster o che si interfaccia con internet
+
+kubectl expose deployment hello-node --type=LoadBalancer --port=8080
+espone il pod verso internet
+--type loadbalancer significa che esponi il servizio al di fuori del cluster
+
+kubectl get services
+mostra servizi
+
+nota: su provider cloud che supportano load balancer sarà fornito un ip esterno (minikube mostra "pending" perché glielo devi assegnare tu con il comando minikube service
+
+minikube service hello-node
+mostra link a una pagina web che mostra le risposte dell'app
+
+minikube addons list
+mostra addon
+
+minikube addons enable metrics-server
+attiva un addon
+
+kubectl top pods
+mostra output di metrics-server
+
+kubectl delete service hello-node
+cancella servizio
+
+kubectl delete deployment hello-node
+cancella deployment
+
+minikube stop
+stoppa cluster minikube
+
+minikube delete
+cancella minikube vm

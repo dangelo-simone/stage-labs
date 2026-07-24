@@ -1,0 +1,48 @@
+services:
+  wordpress:
+    image: wordpress
+    restart: always
+    ports:
+      - 8080:80
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: exampleuser
+      WORDPRESS_DB_PASSWORD: examplepass
+      WORDPRESS_DB_NAME: exampledb
+    volumes:
+      - ./data/wp_data:/var/www/html
+    networks:
+      - wp_net
+
+  db:
+    image: mariadb
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: example
+      MARIADB_USER: exampleuser
+      MARIADB_PASSWORD: examplepass
+      MARIADB_DATABASE: exampledb
+    volumes:
+      - ./data/db_data:/var/lib/mysql
+    networks:
+      - wp_net
+      - db_net
+
+  alloy:
+    image: grafana/alloy:v1.7.5
+    ports:
+      - 12345:12345
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy
+    networks:
+      - wp_net
+      - log_net
+
+networks:
+  wp_net:
+  log_net:
+    external: true
+  db_net:
+    external: true

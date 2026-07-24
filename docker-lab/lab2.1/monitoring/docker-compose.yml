@@ -1,0 +1,53 @@
+services:
+  loki:
+    image: grafana/loki:3.4.2
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml
+      - ./data/loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - log_net
+
+  grafana:
+    image: grafana/grafana-enterprise
+    environment:
+      - GF_FEATURE_TOGGLES_ENABLE=grafanaManagedRecordingRules
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_BASIC_ENABLED=false
+    user: "1000"
+    restart: unless-stopped
+    volumes:
+      - ./data/grafana_data:/var/lib/grafana
+    ports:
+      - '3000:3000'
+    networks:
+      - log_net
+      - db_net
+    entrypoint:
+      - sh
+      - -euc
+      - |
+        mkdir -p /etc/grafana/provisioning/datasources
+        cat <<EOF > /etc/grafana/provisioning/datasources/ds.yaml
+        apiVersion: 1
+        datasources:
+        - name: Loki
+          type: loki
+          access: proxy
+          orgId: 1
+          url: 'http://loki:3100'
+          basicAuth: false
+          isDefault: true
+          version: 1
+          editable: true
+        EOF
+        /run.sh
+
+networks:
+  log_net:
+    external: true
+  db_net:
+    external: true

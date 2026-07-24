@@ -1,0 +1,97 @@
+dato che in un ambiente realistico l'ambiente di produzione e l'ambiente di monitoraggio sono separati voglio provare a simulare una situazione simile (con rete external)
+
+alloy legge dal db e spedisce a loki, deve comunicare con entrambe le reti
+alloy deve essere deve avere accesso locale ai container (per il socket): lo metto in prod. il traffico va da prod a monitoring e mai viceversa
+
+wp_net (rete isolata di produzione) non raggiungibile dall'esterno (definita solo all'interno del compose), log_net (rete monitoraggio) invece sì (creata a mano con docker network create)
+
+eseguo docker compose di monitoring e prod
+
+pingando loki da wordpress dà errore come volevo: stanno su due reti diverse:
+
+[simone@Atlas prod]$ sudo docker compose exec wordpress sh -c "apt-get update && apt-get install -y iputils-ping && ping -c2 loki"
+ping: loki: Temporary failure in name resolution
+
+
+mentre pingando MariaDB da alloy (che fa da ponte):
+
+[simone@Atlas prod]$ sudo docker compose exec alloy sh -c "apt-get update && apt-get install -y iputils-ping && ping -c2 db"
+PING db (172.20.0.2) 56(84) bytes of data.
+64 bytes from prod-db-1.prod_wp_net (172.20.0.2): icmp_seq=1 ttl=64 time=0.817 ms
+64 bytes from prod-db-1.prod_wp_net (172.20.0.2): icmp_seq=2 ttl=64 time=0.154 ms
+
+--- db ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1000ms
+rtt min/avg/max/mdev = 0.154/0.485/0.817/0.331 ms
+
+pingando loki da alloy (ponte):
+
+[simone@Atlas prod]$ docker compose exec alloy ping -c2 loki
+PING loki (172.21.0.2) 56(84) bytes of data.
+64 bytes from monitoring-loki-1.log_net (172.21.0.2): icmp_seq=1 ttl=64 time=2.26 ms
+64 bytes from monitoring-loki-1.log_net (172.21.0.2): icmp_seq=2 ttl=64 time=0.162 ms
+
+--- loki ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 0.162/1.209/2.256/1.047 ms
+
+pingando db da grafana: fallisce com'è giusto che sia (reti diverse)(ho scoperto che grafana ha ping integrato)
+
+[simone@Atlas monitoring]$ docker compose exec grafana ping -c2 db
+ping: bad address 'db'
+
+creo dashboard: log OK, SQL devo aggiungere la data source a mano (no provisioning come nello scorso lab), tanto non mostrerà niente senza che io ci metta mano
+
+anzi non mi fa neanche aggiungere la data source, mi dà errore (expected in realtà):
+Network error: Failed to connect to the server. Error message: lookup db on 127.0.0.11:53: read udp 127.0.0.1:48838->127.0.0.11:53: i/o timeout
+perché richiederebbe a Grafana di entrare nel prod e fare query sul db (cosa che non voglio: gli ambienti devono rimanere separati) 
+
+soluzione come si deve: qualcosa tipo Prometheus (credo che serva a quello, l'ha detto Simone in call se non ricordo male) 
+soluzione mia: boh
+
+IDEA: su Grafana mi esce un messaggio: "The database user should only be granted SELECT permissions on the specified database & tables you want to query."
+e se facessi una cosa del genere per "simulare" prometeheus? cioè qualcosa che renda accessibile parte del database all'esterno 
+
+devo creare una rete external dove comunicano Grafana e db (forse non molto realistico ma senza questa non funzionerebbe)
+
+modifico i compose con la rete nuova e creo l'utente con soli privilegi di select
+
+[simone@Atlas prod]$ docker compose exec db mariadb -u root -pexample -e "
+CREATE USER IF NOT EXISTS 'grafana'@'%' IDENTIFIED BY 'grafanapass';
+GRANT SELECT ON exampledb.* TO 'grafana'@'%';
+FLUSH PRIVILEGES;
+"
+[simone@Atlas prod]$ docker compose exec db mariadb -u root -pexample -e "SHOW GRANTS FOR 'grafana'@'%';"
++--------------------------------------------------------------------------------------------------------+
+| Grants for grafana@%                                                                                   |
++--------------------------------------------------------------------------------------------------------+
+| GRANT USAGE ON *.* TO `grafana`@`%` IDENTIFIED BY PASSWORD '*A1750AA3B30B102FE9BDD5BC70067C1F3EAC1AEE' |
+| GRANT SELECT ON `exampledb`.* TO `grafana`@`%`                                                         |
++--------------------------------------------------------------------------------------------------------+
+
+configuro la data source e testo che sia read-only
+test scrittura:
+
+[simone@Atlas prod]$ docker compose exec db mariadb -u grafana -pgrafanapass -e "DELETE FROM exampledb.wp_posts WHERE ID=1;"
+--------------
+DELETE FROM exampledb.wp_posts WHERE ID=1
+--------------
+
+ERROR 1142 (42000) at line 1: DELETE command denied to user 'grafana'@'localhost' for table `exampledb`.`wp_posts`
+[simone@Atlas prod]$
+
+test lettura:
+[simone@Atlas prod]$ docker compose exec db mariadb -u grafana -pgrafanapass -e "SELECT COUNT(*) FROM exampledb.wp_posts;"
++----------+
+| COUNT(*) |
++----------+
+|        7 |
++----------+
+
+ritesto pingando:
+[simone@Atlas prod]sudo docker compose exec wordpress sh -c "apt-get update && apt-get install -y iputils-ping && ping -c2 loki"
+ping: loki: Temporary failure in name resolution
+[simone@Atlas prod]$ cd ../monitoring && docker compose exec grafana ping -c2 wordpress
+ping: bad address 'wordpress'
+
+ovviamente se spengo il monitoring wordpress rimane comunque up

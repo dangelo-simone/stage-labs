@@ -1,0 +1,79 @@
+[
+  {
+    "line": "172.20.0.1 - - [22/Jul/2026:14:46:21 +0000] \"GET /pagina-che-non-esiste-21580 HTTP/1.1\" 404 474 \"-\" \"curl/8.12.1\"",
+    "timestamp": "1784731581990303258",
+    "date": "2026-07-22T14:46:21.990Z",
+    "fields": {
+      "container": "wordpress",
+      "detected_level": "unknown",
+      "env": "production",
+      "service_name": "wordpress"
+    }
+  },
+  {
+    "line": "172.20.0.1 - - [22/Jul/2026:14:46:19 +0000] \"GET /pagina-che-non-esiste-27864 HTTP/1.1\" 404 474 \"-\" \"curl/8.12.1\"",
+    "timestamp": "1784731579964144202",
+    "date": "2026-07-22T14:46:19.964Z",
+    "fields": {
+      "container": "wordpress",
+      "detected_level": "unknown",
+      "env": "production",
+      "service_name": "wordpress"
+    }
+  },
+  {
+    "line": "172.20.0.1 - - [22/Jul/2026:14:46:17 +0000] \"GET /pagina-che-non-esiste-8315 HTTP/1.1\" 404 474 \"-\" \"curl/8.12.1\"",
+    "timestamp": "1784731577923599497",
+    "date": "2026-07-22T14:46:17.923Z",
+    "fields": {
+      "container": "wordpress",
+      "detected_level": "unknown",
+      "env": "production",
+      "service_name": "wordpress"
+    }
+  },
+  {
+    "line": "[Wed Jul 22 14:44:41.626814 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'apache2 -D FOREGROUND'",
+    "timestamp": "1784731481627167743",
+    "date": "2026-07-22T14:44:41.627Z",
+    "fields": {
+      "container": "wordpress",
+      "detected_level": "unknown",
+      "env": "production",
+      "service_name": "wordpress"
+    }
+  },
+  {
+    "line": "[Wed Jul 22 14:44:41.626718 2026] [mpm_prefork:notice] [pid 1:tid 1] AH00163: Apache/2.4.68 (Debian) PHP/8.3.32 configured -- resuming normal operations",
+    "timestamp": "1784731481627118460",
+    "date": "2026-07-22T14:44:41.627Z",
+    "fields": {
+      "container": "wordpress",
+      "detected_level": "unknown",
+      "env": "production",
+      "service_name": "wordpress"
+    }
+  },
+  {
+    "line": "AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.20.0.4. Set the 'ServerName' directive globally to suppress this message",
+    "timestamp": "1784731481549390782",
+    "date": "2026-07-22T14:44:41.549Z",
+    "fields": {
+      "container": "wordpress",
+      "detected_level": "unknown",
+      "env": "production",
+      "service_name": "wordpress"
+    }
+  },
+  {
+    "line": "AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.20.0.4. Set the 'ServerName' directive globally to suppress this message",
+    "timestamp": "1784731481517842959",
+    "date": "2026-07-22T14:44:41.517Z",
+    "fields": {
+      "container": "wordpress",
+      "detected_level": "unknown",
+      "env": "production",
+      "service_name": "wordpress"
+    }
+  }
+]
