@@ -1,0 +1,39 @@
+creo le 3 vm, le assegno tutte alla stessa rete e assegno hostname 
+
+che porte servono per comunicare? 6443tcp, 8472udp, 10250tcp, devo controllare che siano aperte su tutte le vm
+
+apro con firewall-cmd, test ping funziona da server a workers
+
+installo k3s con curl (come da sito ufficiale), assegno l'ip del server 	
+
+curl -sfL https://get.k3s.io | sh -s - server --tls-san 192.168.1.50 (san serve per quando si usa vpn)
+
+manda tutto in output su tty, mi tocca usare ssh dal terminale del mio portatile
+ssh non funziona, ho fatto sudo dmesg -n 1. 
+ho sbagliato a segnarmi l'ip del server, ho scritto 172.169... invece che 168
+ssh è molto più comodo
+
+installo k3s sui worker collegandoli all'url del server e dandogli in pasto il token che è in /var/lib/... sempre sul server
+
+curl -sfL https://get.k3s.io | K3S_URL=https://192.168.1.50:6443 K3S_TOKEN=blablabla sh -
+
+problema, path di almalinux non include directory di installazione di k3s e non lo vede come comando (devo fare sudo /usr/local/bin/k3s kubectl get nodes, kubectl da solo funziona grazie al symlink installato da k3s)
+posso settare il path al file di config come variabile di ambiente (l'originale è protetto, devo fare una copia)
+
+cluster composto da:
+[atlas@k3s-server ~]$ kubectl get nodes -o wide
+NAME         STATUS   ROLES           AGE     VERSION        INTERNAL-IP     EXTERNAL-IP   OS-IMAGE                         KERNEL-VERSION                         CONTAINER-RUNTIME
+k3s-server   Ready    control-plane   34m     v1.36.2+k3s1   192.168.1.50    <none>        AlmaLinux 9.4 (Seafoam Ocelot)   5.14.0-427.13.1.el9_4.x86_64 (amd64)   containerd://2.3.2-k3s2
+k3s-worker   Ready    <none>          3m24s   v1.36.2+k3s1   192.168.1.157   <none>        AlmaLinux 9.4 (Seafoam Ocelot)   5.14.0-427.13.1.el9_4.x86_64 (amd64)   containerd://2.3.2-k3s2
+worker2      Ready    <none>          77s     v1.36.2+k3s1   192.168.1.88    <none>        AlmaLinux 9.4 (Seafoam Ocelot)   5.14.0-427.13.1.el9_4.x86_64 (amd64)   containerd://2.3.2-k3s2
+
+NB: ho sbagliato gli hostname durante la fase di installazione, dovrebbero essere più uniformi
+
+ora passo a wordpress e db 
+
+a quanto pare c'è una corrispondenza quasi 1:1 docker compose e manifest (anche loro file yaml) di k3s (per esempio un service del compose diventa un deployment)
+manifest: descrivono lo stato desiderato di qualcosa nel cluster. Kubernetes poi dopo avere creato quello che c'è nel manifest continua a gestire i pods
+NB: un manifest per ogni oggetto, oppure nello stesso file ma separati da "---"
+
+un po' mi puzza mettere password in chiaro su vm e non in locale ma finché non sono su repo pubbliche credo vada bene
+
