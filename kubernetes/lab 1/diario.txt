@@ -44,3 +44,5 @@ envfrom prende tutte le chiavi in secret
 env vuole che gliele mappi tu key value pair (es nel manifest wordpress dove i nomi delle variabili nel secret non sono uguali a quelle che vuole wordpress)
 
 ports vs nodeport: nodeport è accesibile dall'esterno, port è accessibile solo all'interno del network del cluster, nodeport hanno intervallo da 30000 a 32767
+
+a quanto pare kubectl apply funziona in ordine alfabetico, da ricordare
