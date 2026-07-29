@@ -37,3 +37,10 @@ NB: un manifest per ogni oggetto, oppure nello stesso file ma separati da "---"
 
 un po' mi puzza mettere password in chiaro su vm e non in locale ma finché non sono su repo pubbliche credo vada bene
 
+nel manifest di MariaDB non ho messo readwritemany perché un db ha un solo scrittore
+no rollingupdate (metto recreate) perché non voglio che contendano lo stesso disco
+
+envfrom prende tutte le chiavi in secret
+env vuole che gliele mappi tu key value pair (es nel manifest wordpress dove i nomi delle variabili nel secret non sono uguali a quelle che vuole wordpress)
+
+ports vs nodeport: nodeport è accesibile dall'esterno, port è accessibile solo all'interno del network del cluster, nodeport hanno intervallo da 30000 a 32767
