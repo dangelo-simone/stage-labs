@@ -46,3 +46,5 @@ env vuole che gliele mappi tu key value pair (es nel manifest wordpress dove i n
 ports vs nodeport: nodeport è accesibile dall'esterno, port è accessibile solo all'interno del network del cluster, nodeport hanno intervallo da 30000 a 32767
 
 a quanto pare kubectl apply funziona in ordine alfabetico, da ricordare
+
+kustomize è abbastanza semplice, gli devi solo dire quali patch applicare e su quale app
