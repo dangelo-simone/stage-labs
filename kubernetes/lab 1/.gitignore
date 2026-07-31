@@ -1,0 +1,5 @@
+mariadb.env
+**/mariadb.env
+*.env
+!*.env.example
+secret.yaml
