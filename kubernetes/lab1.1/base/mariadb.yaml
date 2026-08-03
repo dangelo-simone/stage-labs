@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mariadb-pvc
+  namespace: wordpress
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mariadb
+  namespace: wordpress
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:11
+          ports:
+            - containerPort: 3306
+          envFrom:
+            - secretRef:
+                name: mariadb-secret
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mariadb-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  namespace: wordpress
+spec:
+  selector:
+    app: mariadb
+  ports:
+    - port: 3306
+      targetPort: 3306
