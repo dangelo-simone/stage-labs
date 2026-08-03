@@ -5,7 +5,3 @@ resources:
   - namespace.yaml
   - mariadb.yaml
   - wordpress.yaml
-secretGenerator:
-  - name: mariadb-secret
-    envs:
-      - mariadb.env
