@@ -1,0 +1,33 @@
+ancora problemi con il dns, risolti
+
+creo chiave ssh per connettermi a GitHub
+
+clono repo e copio file che mi servono da lab precedente
+
+controllo che non ci sia secret in git status
+
+installo argocd
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+non voglio che il secret sia nella repo sincronizzata da argocd però i dati al suo interno mi servono, devo applicarlo a mano con kubectl create secret --from-env-file (farò una prova separata con git-crypt dopo)
+
+voglio rendere la gui di argocd accessibile dall'esterno (mi permette di fare il sync da gui per esempio) per comodità (non necessario per il funzionamento di argocd), voglio che sia permanente per cui apro il firewall alla portnode bound alla 443 e mi salvo la password admin iniziale
+
+creo manifest yaml di argocd dove specifico url della repo, path dell'ambiente dev, prune e selfheal, lo applico, cambio il manifest della patch da 2 repliche a 3, git commmit e push e forzo il resync dalla gui, risultato:
+[server@k3s-server dev]$ kubectl get pods -n wordpress
+NAME                         READY   STATUS    RESTARTS   AGE
+mariadb-7cb86db685-hwjz7     1/1     Running   0          4m49s
+wordpress-579c54c499-cs49w   1/1     Running   0          2s
+wordpress-579c54c499-lmmxn   1/1     Running   0          4m48s
+wordpress-579c54c499-tbc8r   1/1     Running   0          4m48s
+
+senza dover fare nessuna apply oltre a quella iniziale di argocd
+
+prova git-crypt:
+
+installo git-crypt
+metto il file env con le opzioni filter=git-crypt diff=git-crypt' in .gitattributes
+esporto la chiave di git crypt fuori dalla repo
+
+git add, git commit, git push
