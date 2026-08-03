@@ -31,3 +31,7 @@ metto il file env con le opzioni filter=git-crypt diff=git-crypt' in .gitattribu
 esporto la chiave di git crypt fuori dalla repo
 
 git add, git commit, git push
+
+andando sui vari nodi alla porta 30080: Error establishing a database connection, semplicemente il pvc era vecchio e aveva ancora le credenziali vecchie, di un secret che ora non c'è più
+kubectl delete deploy mariadb 
+delete pvc mariadb-pvc
