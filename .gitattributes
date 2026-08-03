@@ -1,0 +1,1 @@
+kubernetes/lab1.1/base/mariadb.env filter=git-crypt diff=git-crypt
