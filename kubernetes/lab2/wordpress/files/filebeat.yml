@@ -1,0 +1,7 @@
+filebeat.inputs:
+  - type: filestream
+    id: apache-logs
+    paths:
+      - /var/log/apache2/*.log
+output.logstash:
+  hosts: ["logstash.elk.svc.cluster.local:5044"]
