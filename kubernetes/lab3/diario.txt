@@ -1,0 +1,137 @@
+due istanze di wordpress, scrivono su stesso alias, tanto hanno stesse esigenze di volume, sicurezza etc
+
+tutto simile a lab 2 eccetto pipelines.yml che avrà 3 pipelines in parallelo, semplicemente gli ho specificato l'id e il path al config di ogni pipeline (e catchall)
+
+catchall.conf: un input beats, manderà in output alla pipeline dedicata all'istanza (definita da filebeat)
+
+mentre i conf delle pipeline semplicemente filtrano con grok come nel lab 2 (ho messo ilm enabled false perché non sono loro a dover gestire l'ilm)
+
+policy, template, primo alias come nel lab precedente (su dev console su kibana):
+
+PUT _ilm/policy/wordpress-logs-policy
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "actions": {
+          "rollover": { "max_docs": 1000 }
+        }
+      },
+      "warm": {
+        "min_age": "1m",
+        "actions": {
+          "forcemerge": { "max_num_segments": 1 }
+        }
+      },
+      "delete": {
+        "min_age": "5m",
+        "actions": { "delete": {} }
+      }
+    }
+  }
+}
+
+PUT _cluster/settings
+{
+  "persistent": {
+    "indices.lifecycle.poll_interval": "10s"
+  }
+}
+
+PUT _index_template/wordpress-logs-template
+{
+  "index_patterns": ["wordpress-logs-*"],
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "wordpress-logs-policy",
+      "index.lifecycle.rollover_alias": "wordpress-logs",
+      "index.number_of_replicas": 0
+    }
+  }
+}
+
+NOTA: se non metto replicas a 0 mi dà yellow e non green (anche nel lab precedente succedeva)
+
+PUT wordpress-logs-000001
+{
+  "aliases": {
+    "wordpress-logs": { "is_write_index": true }
+  }
+}
+
+genero traffico con curl (1200 richieste da ogni nodo per ogni istanza wp = 7200 richieste)
+
+GET wordpress-logs/_count ritorna:
+
+{
+  "count": 7200,
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "skipped": 0,
+    "failed": 0
+  }
+}
+
+mentre GET wordpress-logs/_search
+{
+  "size": 0,
+  "aggs": {
+    "per_instance": {
+      "terms": { "field": "instance.keyword" }
+    }
+  }
+}
+
+ritorna: 
+
+{
+  "took": 16,
+  "timed_out": false,
+  "_shards": {
+    "total": 2,
+    "successful": 2,
+    "skipped": 0,
+    "failed": 0
+  },
+  "hits": {
+    "total": {
+      "value": 7200,
+      "relation": "eq"
+    },
+    "max_score": null,
+    "hits": []
+  },
+  "aggregations": {
+    "per_instance": {
+      "doc_count_error_upper_bound": 0,
+      "sum_other_doc_count": 0,
+      "buckets": [
+        {
+          "key": "wp1",
+          "doc_count": 3600
+        },
+        {
+          "key": "wp2",
+          "doc_count": 3600
+        }
+      ]
+    }
+  }
+}
+
+
+GET _cat/indices/wordpress-logs-*?v&s=index ritorna
+
+health status index                 uuid                   pri rep docs.count docs.deleted store.size pri.store.size dataset.size
+green open   wordpress-logs-000001 2kfBPQTnQ1ahhRJo46KE6w   1   0       6589            0      1.4mb          1.4mb        1.4mb
+green open   wordpress-logs-000002 0K02FTj6QDSiLC3OegU1MA   1   0        611            0    353.9kb        353.9kb      353.9kb
+
+evidentemente il traffico è arrivato prima che il timer di rollover scadesse, ecco perché ci sono 6000 docs nel primo indice (però la somma è 7200 per cui torna)
+
+dopo qualche minuto e altro traffico con curl
+
+health status index                 uuid                   pri rep docs.count docs.deleted store.size pri.store.size dataset.size
+green  open   wordpress-logs-000002 0K02FTj6QDSiLC3OegU1MA   1   0        736            0    547.2kb        547.2kb      547.2kb
+
+anche la cancellazione funziona
