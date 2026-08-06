@@ -1,7 +1,9 @@
 due istanze di wordpress, scrivono su stesso alias, tanto hanno stesse esigenze di volume, sicurezza etc
 
-tutto simile a lab 2 eccetto pipelines.yml che avrà 3 pipelines in parallelo, semplicemente gli ho specificato l'id e il path al config di ogni pipeline (e catchall)
-
+simile a lab 2, eccetto per:
+  in filebeat.yml: nuovo field
+  da una pipeline a 3, in pipelines.yml, gestite da catchall con un if
+  due istanze wordpress: wp1 e wp2
 catchall.conf: un input beats, manderà in output alla pipeline dedicata all'istanza (definita da filebeat)
 
 mentre i conf delle pipeline semplicemente filtrano con grok come nel lab 2 (ho messo ilm enabled false perché non sono loro a dover gestire l'ilm)
