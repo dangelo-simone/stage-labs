@@ -1,0 +1,131 @@
+deploy elk:
+incremento virtual memory al max (consigliato nei docs di elastic)
+manifest namespace e elasticsearch
+apply e test running
+
+rimane in pending: non ha abbastanza memoria (dagli events), devo abbassare heap e request limit (heap 50% del limite, regola di elastic), potrei dare più ram alla vm ma non voglio riavviarla adesso
+
+rifaccio la apply: running
+
+
+deploy logstash
+opera con una pipeline: semplicemente input apre porta in ascolto, filter trasforma, output output spedisce a elasticsearch, no parsing da fare (per ora)
+serve che sia clusterip perchè traffico interno al cluster
+configmap: coerente con filosofia gitops
+
+la pipe indica che segue testo da non interpretare come yaml ma come stringa
+0.0.0.0 ascolta su tutte le interfacce
+xpack disattivato
+
+pipeline semplice, aggiungo già porta di filebeats in ascolto
+
+deploy kibana
+nodeport: deve essere raggiungibile dall'esterno
+manifest abbastanza standard, no problemi
+
+stessi manifest MariaDB, wordpress, secret creato tramite comando come nel lab 1.1, porta diversa su wordpress così non va in conflitto con il lab precedente (30801)
+
+deploy filebeat
+volume condiviso /var/log/apache2/ tra wordpress e filebeat, no stdout
+filebeat deve essere root
+strict.perms false, se no vuole permessi restrittivi 
+
+vado su wordpress, creo un post, clicco in giro per generare log
+
+vado su kibana (porta 30601): analytics -> discover
+creo una dashboard
+
+finora non operavo sui log con logstash, voglio aggiungere del parsing nella pipeline
+grok solo su access.log (error.log ha formato diverso)
+
+ILM sposta indici di log vecchi (cold/frozen) su storage più economici (perché ci si accede meno spesso) e tramite rollover (size o età) vengono creati nuovi indici
+non avendo più di un hardware dove immagazzinare gli indici di ogni "temperatura"
+
+steps:
+policy
+template per applicare le policy agli index 
+non uso data streams (da quello che leggo data streams sono meglio e più moderne, astraggono parte di questo processo di policy, template, etc + hanno anche ottimizzazioni varie, etc. ref: https://discuss.elastic.co/t/datastream-over-index-with-ilm/350078), ma rolling indices: devo creare un indice e alias iniziale già gestito
+logstash che scrive sull'indice
+
+
+nella console dev di kibana:
+policy: in hot rollover appena l'indice tocca 5 documenti o 5 minuti, dopo 2 minuti dal rollover passa in warm e fa forcemerge 10 minuti dopo il rollover fa delete. I min_age si contano dal momento del rollover. Ho messo set_priority
+
+PUT _ilm/policy/wordpress-logs-policy
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "actions": {
+          "rollover": { "max_docs": 5, "max_age": "5m" },
+          "set_priority": { "priority": 100 }
+        }
+      },
+      "warm": {
+        "min_age": "2m",
+        "actions": {
+          "forcemerge": { "max_num_segments": 1 },
+          "set_priority": { "priority": 50 }
+        }
+      },
+      "delete": {
+        "min_age": "10m",
+        "actions": { "delete": {} }
+      }
+    }
+  }
+}
+
+template:
+PUT _index_template/wordpress-logs-template
+{
+  "index_patterns": ["wordpress-logs-*"],
+  "template": {
+    "settings": {
+      "number_of_replicas": 0,
+      "index.lifecycle.name": "wordpress-logs-policy",
+      "index.lifecycle.rollover_alias": "wordpress-logs"
+    }
+  }
+}
+
+primo indice:
+PUT wordpress-logs-000001
+{
+  "aliases": { "wordpress-logs": { "is_write_index": true } }
+}
+
+cambio manifest di logstash in modo che scriva sull'alias wordpress-logs-*
+
+genero traffico su wordpress ed eseguo questo comando
+
+GET _cat/indices/wordpress-logs-*?v&s=index 
+
+che ritorna
+
+health status index                     uuid                   pri rep docs.count docs.deleted store.size pri.store.size dataset.size
+green  open   wordpress-logs-000001     pZD5JvkAQsGRiOQh8J008g   1   0         5            0     94.5kb         94.5kb       94.5kb
+green  open   wordpress-logs-000002     wDcPtCsPR9yLTW5JzoFF2Q   1   0          4            0       78kb           78kb         78kb
+yellow open   wordpress-logs-2026.08.04 UBdLl5QiQ7mgy6kTGPLwVg   1   1        490            0    778.3kb        778.3kb      778.3kb
+
+(wordpress-logs-2026... è quello vecchio prima di implementare ilm)
+
+dopo un po' di tempo...
+
+health status index                     uuid                   pri rep docs.count docs.deleted store.size pri.store.size dataset.size
+green  open   wordpress-logs-000002     wDcPtCsPR9yLTW5JzoFF2Q   1   0          4            0     32.3kb         32.3kb       32.3kb
+green  open   wordpress-logs-000003     nxZnHjCCRV2dqSXjXInVOQ   1   0          2            0       28kb           28kb         28kb
+green  open   wordpress-logs-000004     GbMBkNhoTx6U6a7A1jDSQA   1   0          0            0       227b           227b         227b
+yellow open   wordpress-logs-2026.08.04 UBdLl5QiQ7mgy6kTGPLwVg   1   1        490            0    778.3kb        778.3kb      778.3kb
+
+
+ora aggiungo kustomize 
+si tratta solo di estrarre contenuti che prina erano inline e metterli in file separati, poi togliere configmap (verranno generati da kustomize usando kustomization)
+2 kustomization, uno per stack elk, uno per app wordpress, dove includo risorse e configmapgenerator
+
+apply base, apply wordpress
+
+ora separo in dev e prod, faccio una semplice patch su elasticsearch in modo che usi meno memoria per dev e più memoria su prod
+applico dev
+
+argocd, uso stesso file del lab 1.1, faccio la apply, e l'output di argocd get application è synced e healthy
