@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: logstash
+  namespace: elk-lab3
+spec:
+  selector:
+    app: logstash
+  ports:
+    - name: beats
+      port: 5044
+      targetPort: 5044
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: elk-lab3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+        - name: logstash
+          image: docker.elastic.co/logstash/logstash:9.4.4
+          env:
+            - name: LS_JAVA_OPTS
+              value: "-Xms768m -Xmx768m"
+          ports:
+            - containerPort: 5044
+          resources:
+            requests:
+              memory: 1Gi
+            limits:
+              memory: 1536Mi
+          volumeMounts:
+            - name: logstash-cfg
+              mountPath: /usr/share/logstash/config/pipelines.yml
+              subPath: pipelines.yml
+            - name: logstash-cfg
+              mountPath: /usr/share/logstash/pipeline/catchall.conf
+              subPath: catchall.conf
+            - name: logstash-cfg
+              mountPath: /usr/share/logstash/pipeline/wp1.conf
+              subPath: wp1.conf
+            - name: logstash-cfg
+              mountPath: /usr/share/logstash/pipeline/wp2.conf
+              subPath: wp2.conf
+      volumes:
+        - name: logstash-cfg
+          configMap:
+            name: logstash

@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - elasticsearch.yaml
+  - kibana.yaml
+  - logstash.yaml
+
+configMapGenerator:
+  - name: logstash
+    namespace: elk-lab3
+    files:
+      - pipelines.yml
+      - catchall.conf
+      - wp1.conf
+      - wp2.conf
+
+generatorOptions:
+  disableNameSuffixHash: false

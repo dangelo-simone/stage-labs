@@ -1,0 +1,12 @@
+filebeat.inputs:
+  - type: filestream
+    id: apache-access
+    paths:
+      - /var/log/apache2/access.log
+
+fields:
+  instance: wp2
+fields_under_root: true
+
+output.logstash:
+  hosts: ["logstash.elk-lab3.svc.cluster.local:5044"]

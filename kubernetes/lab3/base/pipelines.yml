@@ -1,0 +1,6 @@
+- pipeline.id: beats-catchall
+  path.config: "/usr/share/logstash/pipeline/catchall.conf"
+- pipeline.id: wp1
+  path.config: "/usr/share/logstash/pipeline/wp1.conf"
+- pipeline.id: wp2
+  path.config: "/usr/share/logstash/pipeline/wp2.conf"
