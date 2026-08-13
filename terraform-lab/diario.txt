@@ -30,3 +30,31 @@ script di startup della vm:
 
 problema: non ci sono macchine micro su us-central1-a/b/c, cambio regione us-west1-b
 
+passo a n8n (solo egress, non ho connessioni in ingresso)
+creo vm f2i
+sistemo dns
+apro porta 5678 (gui n8n)
+faccio il compose di n8n:
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - N8N_ENCRYPTION_KEY=<output di ssl keygen>
+      - GENERIC_TIMEZONE=Europe/Rome
+      - TZ=Europe/Rome
+      - N8N_HOST=<ip pubblico vm>
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - N8N_SECURE_COOKIE=false
+    dns:
+      - 192.168.1.1
+    volumes:
+      - /opt/n8n/data:/home/node/.n8n:Z
+      - /etc/resolv.conf:/etc/resolv.conf:ro
+
+conf nei volumi e mode host perché dava ancora problemi con il dns
+
+
+reggiunta pagina registrazione n8n
