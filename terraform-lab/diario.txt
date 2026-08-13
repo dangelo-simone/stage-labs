@@ -1,0 +1,31 @@
+installo terraform e google cli su wsl)
+autentico cli e application default credentials
+abilito api compute e genero chiavi ssh
+
+scrivo file tf
+provider: google (serve per la init)
+file variabili (variabili senza default devono essere in terraform.tfvars)
+main:
+	vpc, 1 subnet/24, 
+	gestione firewall: ssh solo dal mio ip (wsl almalinux) e http(s) da tutto il mondo
+	config vm Debian, la assegno alla vpc
+	chiavi ssh
+	startup script nel file tf (se viene modificato forza la ricreazione dell'istanza)
+metto variabili sensibili in tfvars e pusho un file tfvars.example
+output: mostra ip pubblico
+
+terraform init: prepara la cartella a essere usata con terraform
+terraform plan: crea un piano di esecuzione, fa la preview dei cambiamenti all'infrastruttura
+terraform apply: crea un piano (come plan), chiede l'approvazione (con opzione -auto-approve fa da solo) e fa le operazioni indicate
+
+
+script di startup della vm:
+1. trova l'url repo dal metadata server e imposta webroot e path repo clonata
+2. apt update e install nginx, ssl, git
+3. clona repo
+4. certificato ssl, prende l'ip pubblico dal metadata server e lo usa come identità
+5. config nginx, listen su 80 e return 301, listen su 443, specifica certificato, root e index
+6. restart nginx
+7. cronjob pull repo ogni 5 minuti
+
+problema: non ci sono macchine micro su us-central1-a/b/c
