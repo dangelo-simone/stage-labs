@@ -10,7 +10,7 @@ main:
 	gestione firewall: ssh solo dal mio ip (wsl almalinux) e http(s) da tutto il mondo
 	config vm Debian, la assegno alla vpc
 	chiavi ssh
-	startup script nel file tf (se viene modificato forza la ricreazione dell'istanza)
+	startup script nel file tf
 metto variabili sensibili in tfvars e pusho un file tfvars.example
 output: mostra ip pubblico
 
@@ -28,4 +28,5 @@ script di startup della vm:
 6. restart nginx
 7. cronjob pull repo ogni 5 minuti
 
-problema: non ci sono macchine micro su us-central1-a/b/c
+problema: non ci sono macchine micro su us-central1-a/b/c, cambio regione us-west1-b
+
