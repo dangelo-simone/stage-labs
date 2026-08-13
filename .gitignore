@@ -1,2 +1,7 @@
 !kubernetes/lab1.1/base/mariadb.env
-!kubernetes/lab1.1/base/mariadb.env
+# --- terraform-lab ---
+terraform-lab/infra/.terraform/
+terraform-lab/infra/*.tfstate
+terraform-lab/infra/*.tfstate.*
+terraform-lab/infra/*.tfvars
+!terraform-lab/infra/*.tfvars.example
