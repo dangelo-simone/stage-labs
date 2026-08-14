@@ -111,6 +111,3 @@ reggiunta pagina registrazione n8n
 7. nodo github
 	aggiorna l'index con i contenuti del nodo che genera l'html
 
-TODO: carica screenshot del workflow e della pagina web su github
-
-
