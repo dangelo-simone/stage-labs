@@ -1,0 +1,266 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b75d0c13-e7b6-4f18-9a42-6315251811ba",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nlet text = resp.response;                 \n\ntext = text.replace(/```json/gi,'').replace(/```/g,'').trim();\nconst film = JSON.parse(text);\n\nconst oggi = new Date().toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' });\nconst html = `<!DOCTYPE html>\n<html lang=\"it\"><head><meta charset=\"utf-8\">\n<title>Film brutto del giorno</title>\n<style>body{font-family:system-ui,sans-serif;max-width:680px;margin:3rem auto;padding:0 1rem;line-height:1.5}\nh1{margin-bottom:0}.meta{color:#666}.voto{font-size:2rem}</style></head>\n<body>\n<h1>Film brutto del giorno</h1>\n<p class=\"meta\">${oggi}</p>\n<h2>${film.titolo} (${film.anno})</h2>\n<p><strong>Regia:</strong> ${film.regia}</p>\n<p>${film.motivo}</p>\n<p class=\"voto\">Voto: ${film.voto}/10</p>\n</body></html>`;\n\nreturn [{ json: { html, date: new Date().toISOString().slice(0,10) } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "0ea8e085-e9f1-424b-99aa-ff06feda8c0b",
+      "name": "Build HTML"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "owner": {
+          "__rl": true,
+          "value": "dangelo-simone",
+          "mode": "list",
+          "cachedResultName": "dangelo-simone",
+          "cachedResultUrl": "https://github.com/dangelo-simone"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "stage-labs",
+          "mode": "list",
+          "cachedResultName": "stage-labs",
+          "cachedResultUrl": "https://github.com/dangelo-simone/stage-labs"
+        },
+        "filePath": "=terraform-lab/site-content/archive/{{ $('Build HTML').item.json.date }}-{{ $now.toFormat('HHmmss') }}.html",
+        "fileContent": "={{ $json.oldHtml }}",
+        "commitMessage": "=archive {{ $('Build HTML').item.json.date }}"
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [
+        1216,
+        0
+      ],
+      "id": "55af1bfc-bf9c-40b3-b40a-5b8ff903d369",
+      "name": "Archivia",
+      "webhookId": "d9374ed1-524c-4576-aa69-b42d8c8a7e28",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "credentials": {
+        "githubApi": {
+          "id": "BgVJMaCyZ8VSbMmu",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "get",
+        "owner": {
+          "__rl": true,
+          "value": "dangelo-simone",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "stage-labs",
+          "mode": "name"
+        },
+        "filePath": "terraform-lab/site-content/live/index.html",
+        "asBinaryProperty": false,
+        "additionalParameters": {}
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        0
+      ],
+      "id": "3f3c9020-e40e-48fb-ab63-546dfd710558",
+      "name": "Leggi index corrente",
+      "webhookId": "da9cf672-dbea-43c9-b594-c2e8f5d6bfe7",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "credentials": {
+        "githubApi": {
+          "id": "BgVJMaCyZ8VSbMmu",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"llama3.2:3b\",\n  \"prompt\": \"Sei un critico esperto di film trash. Scegli UN film realmente considerato brutto: flop clamorosi, vincitori dei Razzie Awards, o cult trash. NON scegliere film acclamati o classici del cinema. Rispondi in italiano con SOLO un JSON valido, senza testo attorno: {\\\"titolo\\\":\\\"\\\",\\\"anno\\\":0,\\\"regia\\\":\\\"\\\",\\\"motivo\\\":\\\"2-3 frasi ironiche ma informative sul perché è brutto\\\",\\\"voto\\\":numero_decimale_con_una_cifra_dopo_virgola}.\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"options\": { \"temperature\": 1 }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "010a1992-aea5-4581-8b50-349851e07e77",
+      "name": "Genera film brutto"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "edit",
+        "owner": {
+          "__rl": true,
+          "value": "dangelo-simone",
+          "mode": "list",
+          "cachedResultName": "dangelo-simone",
+          "cachedResultUrl": "https://github.com/dangelo-simone"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "stage-labs",
+          "mode": "list",
+          "cachedResultName": "stage-labs",
+          "cachedResultUrl": "https://github.com/dangelo-simone/stage-labs"
+        },
+        "filePath": "terraform-lab/site-content/live/index.html",
+        "fileContent": "={{ $('Build HTML').item.json.html }}",
+        "commitMessage": "=film brutto del giorno {{ $('Build HTML').item.json.date }}"
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [
+        1424,
+        0
+      ],
+      "id": "60e1f359-d95a-4514-832e-9459be90abb1",
+      "name": "Update index",
+      "webhookId": "c71770e0-8ad6-4769-a631-8f803d81e458",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "credentials": {
+        "githubApi": {
+          "id": "BgVJMaCyZ8VSbMmu",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const old = $input.first().json.content || '';\nreturn [{ json: { oldHtml: Buffer.from(old, 'base64').toString('utf8') } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        0
+      ],
+      "id": "a4a00674-2099-41b2-9f50-74e94720dc21",
+      "name": "Decode archive"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Genera film brutto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build HTML": {
+      "main": [
+        [
+          {
+            "node": "Leggi index corrente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leggi index corrente": {
+      "main": [
+        [
+          {
+            "node": "Decode archive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Genera film brutto": {
+      "main": [
+        [
+          {
+            "node": "Build HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archivia": {
+      "main": [
+        [
+          {
+            "node": "Update index",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decode archive": {
+      "main": [
+        [
+          {
+            "node": "Archivia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "d6db115d-d226-4082-8775-f05aa18a89c0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "21d23c6b38fb23f7687e536124a6854a6ef0a39e704aa62c0a0f481a3b4da4de"
+  },
+  "nodeGroups": [],
+  "id": "0lj0LUviUmnFRCE4",
+  "tags": []
+}
