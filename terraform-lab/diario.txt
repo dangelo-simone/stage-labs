@@ -58,3 +58,59 @@ conf nei volumi e mode host perché dava ancora problemi con il dns
 
 
 reggiunta pagina registrazione n8n
+1. nodo schedule trigger, una volta al giorno alle 8
+2. nodo http request
+	gemini mi da problemi di billing, non caposco perché ma è come se non abbia un free tier, vuole per forza il pre-payment
+	uso ollama in locale alla vm tanto il procedimento è lo stesso, la chiamata è a localhost invece che a gemini api
+	devo usare 127.0.0.1 perché scrivere localhost lo risolve come ipv6 e a ollama non piace
+	uso llama3.2:3b (1b mi dava apocalypse now come film brutto...)
+
+	url llama: http://127.0.0.1:11434/api/generate
+	no auth
+	send body: json
+	
+	{
+	  "model": "llama3.2:3b",
+	  "prompt": "Sei un critico esperto di film trash. Scegli UN film realmente considerato brutto: flop clamorosi, vincitori dei Razzie Awards, o cult trash (tipo: The Room, Cats 2019, Battlefield Earth, Movie 43, Gigli, Birdemic). NON scegliere film acclamati o classici del cinema. Rispondi in italiano con SOLO un JSON valido, senza testo attorno: {\"titolo\":\"\",\"anno\":0,\"regia\":\"\",\"motivo\":\"2-3 frasi ironiche ma informative sul perché è brutto\",\"voto\":numero decimale con una cifra dopo la virgola}.",
+	  "stream": false,
+	  "format": "json",
+	  "options": { "temperature": 1 }
+	}
+
+3. nodo code: parso la response di llama e genero html
+	const resp = $input.first().json;
+	let text = resp.response;                 
+
+	text = text.replace(/```json/gi,'').replace(/```/g,'').trim();
+	const film = JSON.parse(text);
+
+	const oggi = new Date().toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' });
+	const html = `<!DOCTYPE html>
+	<html lang="it"><head><meta charset="utf-8">
+	<title>Film brutto del giorno</title>
+	<style>body{font-family:system-ui,sans-serif;max-width:680px;margin:3rem auto;padding:0 1rem;line-height:1.5}
+	h1{margin-bottom:0}.meta{color:#666}.voto{font-size:2rem}</style></head>
+	<body>
+	<h1>Film brutto del giorno</h1>
+	<p class="meta">${oggi}</p>
+	<h2>${film.titolo} (${film.anno})</h2>
+	<p><strong>Regia:</strong> ${film.regia}</p>
+	<p>${film.motivo}</p>
+	<p class="voto">Voto: ${film.voto}/10</p>
+	</body></html>`;
+
+	return [{ json: { html, date: new Date().toISOString().slice(0,10) } }];
+
+4. nodo github
+	get file index.html corrente per poi archiviarlo
+	creo access token su github per poterci accedere
+5. nodo code	
+	la risposta della get è in base64, devo decodificarla
+6. nodo github
+	archivia l'index corrente e gli mette un timestamp, il contenuto è oldhml, definito nel nodo di decode
+7. nodo github
+	aggiorna l'index con i contenuti del nodo che genera l'html
+
+TODO: carica screenshot del workflow e della pagina web su github
+
+
