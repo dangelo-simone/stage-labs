@@ -1,9 +1,5 @@
 # Riassunto dei lab di stage — Simone D'Angelo
 
-Repository: `github.com/dangelo-simone/stage-labs`
-
-> Nota sulle fonti: per il **lab Terraform** la richiesta del tutor è quella testuale della chat. Per i lab **Docker** e **Kubernetes** l'obiettivo è ricostruito dagli artefatti e dai diari di lavoro (non ho la formulazione originale del tutor), mentre lo svolgimento è preso dai `diario.txt`.
-
 ---
 
 ## Docker
