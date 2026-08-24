@@ -1,6 +1,5 @@
 # Riassunto dei lab di stage — Simone D'Angelo
 
----
 
 ## Docker
 
