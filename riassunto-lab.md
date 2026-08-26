@@ -33,11 +33,6 @@
 
 ## Kubernetes
 
-### Hello Minikube — Fondamenti di Kubernetes
-**Obiettivo:** primi passi con Kubernetes in locale.
-
-**Svolgimento:** installazione di minikube e kubectl; creazione di un deployment (`hello-node`); comandi base (`get pods/services/events`, `logs`, `config view`); esposizione con `Service` di tipo LoadBalancer e `minikube service`; addon `metrics-server` con `kubectl top`; dashboard; pulizia e stop/delete del cluster. Annotato il concetto di deployment (salute e scalabilità dei pod) e il warning sull'esposizione degli endpoint.
-
 ### Lab 1 — Cluster k3s reale (multi-nodo) + WordPress/MariaDB
 **Obiettivo:** costruire un vero cluster k3s e portarci lo stack applicativo.
 
