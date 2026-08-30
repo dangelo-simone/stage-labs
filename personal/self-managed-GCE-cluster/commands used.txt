@@ -1,0 +1,797 @@
+# FASE 1 - SETUP
+
+# ---- variables (re-run in any new terminal) ----
+export PROJECT_ID="self-managed-cluster-gce"
+export REGION="europe-west8"          # Milan
+export ZONE="${REGION}-a"
+export MY_IP="93.66.87.42"            # your laptop's current public IP
+
+gcloud config set project "$PROJECT_ID"
+gcloud config set compute/region "$REGION"
+gcloud config set compute/zone "$ZONE"
+
+# ---- APIs (compute + IAP for the SSH tunnel) ----
+gcloud services enable compute.googleapis.com iap.googleapis.com
+
+# ---- VPC (custom mode: no auto subnets) ----
+gcloud compute networks create k8s-vpc \
+  --subnet-mode=custom \
+  --bgp-routing-mode=regional
+
+# ---- Subnet: node IP range only ----
+gcloud compute networks subnets create k8s-nodes \
+  --network=k8s-vpc \
+  --region="$REGION" \
+  --range=10.10.0.0/24
+
+# ---- Firewall ----
+# 1) Full trust BETWEEN nodes (kubelet, etcd, API, Calico VXLAN, everything).
+gcloud compute firewall-rules create k8s-allow-internal \
+  --network=k8s-vpc \
+  --direction=INGRESS --action=ALLOW \
+  --rules=all \
+  --source-ranges=10.10.0.0/24
+
+# 2) SSH — via IAP only (no dependence on your laptop IP).
+gcloud compute firewall-rules create k8s-allow-ssh-iap \
+  --network=k8s-vpc \
+  --direction=INGRESS --action=ALLOW \
+  --rules=tcp:22 \
+  --source-ranges=35.235.240.0/20
+
+# 3) Kubernetes API — from your current laptop IP.
+gcloud compute firewall-rules create k8s-allow-api \
+  --network=k8s-vpc \
+  --direction=INGRESS --action=ALLOW \
+  --rules=tcp:6443 \
+  --source-ranges="${MY_IP}/32"
+
+# FASE 2 - VM
+# --- NAT ---
+gcloud compute routers create k8s-router \
+  --network=k8s-vpc \
+  --region="$REGION"
+
+gcloud compute routers nats create k8s-nat \
+  --router=k8s-router \
+  --region="$REGION" \
+  --auto-allocate-nat-external-ips \
+  --nat-all-subnet-ip-ranges
+
+# --- creazione vm vere e proprie ---
+
+# Controller — 10.10.0.10
+gcloud compute instances create k8s-controller \
+  --zone="$ZONE" \
+  --machine-type=e2-standard-2 \
+  --image-family=ubuntu-2204-lts --image-project=ubuntu-os-cloud \
+  --boot-disk-size=20GB --boot-disk-type=pd-balanced \
+  --subnet=k8s-nodes --private-network-ip=10.10.0.10 --no-address \
+  --can-ip-forward \
+  --tags=k8s-node,k8s-controller
+
+# Worker 1 — 10.10.0.11
+gcloud compute instances create k8s-worker-1 \
+  --zone="$ZONE" \
+  --machine-type=e2-standard-2 \
+  --image-family=ubuntu-2204-lts --image-project=ubuntu-os-cloud \
+  --boot-disk-size=20GB --boot-disk-type=pd-balanced \
+  --subnet=k8s-nodes --private-network-ip=10.10.0.11 --no-address \
+  --can-ip-forward \
+  --tags=k8s-node,k8s-worker
+
+# Worker 2 — 10.10.0.12
+gcloud compute instances create k8s-worker-2 \
+  --zone="$ZONE" \
+  --machine-type=e2-standard-2 \
+  --image-family=ubuntu-2204-lts --image-project=ubuntu-os-cloud \
+  --boot-disk-size=20GB --boot-disk-type=pd-balanced \
+  --subnet=k8s-nodes --private-network-ip=10.10.0.12 --no-address \
+  --can-ip-forward \
+  --tags=k8s-node,k8s-worker
+
+# --- prep script ---
+
+cat > node-prep.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo ">>> [1/5] Disabling swap"
+sudo swapoff -a
+sudo sed -i '/\bswap\b/ s/^\([^#]\)/#\1/' /etc/fstab   # usually a no-op on GCE
+
+echo ">>> [2/5] Loading kernel modules (overlay, br_netfilter)"
+cat <<MOD | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+MOD
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+echo ">>> [3/5] Networking sysctls"
+cat <<SYS | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+SYS
+sudo sysctl --system >/dev/null
+
+echo ">>> [4/5] Installing and configuring containerd"
+sudo apt-get update
+sudo apt-get install -y containerd
+sudo mkdir -p /etc/containerd
+containerd config default | sudo tee /etc/containerd/config.toml >/dev/null
+# kubelet and containerd must agree on the cgroup driver -> systemd
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+sudo systemctl restart containerd
+sudo systemctl enable containerd
+
+echo ">>> [5/5] Installing kubelet, kubeadm, kubectl (v1.31)"
+sudo apt-get install -y apt-transport-https ca-certificates curl gpg
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /' \
+  | sudo tee /etc/apt/sources.list.d/kubernetes.list
+sudo apt-get update
+sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl   # pin versions so an apt upgrade can't break the cluster
+sudo systemctl enable --now kubelet
+
+echo ">>> Node prep complete."
+EOF
+
+# --- push script ai nodi ---
+
+for NODE in k8s-controller k8s-worker-1 k8s-worker-2; do
+  echo "======================  $NODE  ======================"
+  gcloud compute scp node-prep.sh "$NODE:~/node-prep.sh" --zone="$ZONE" --tunnel-through-iap
+  gcloud compute ssh "$NODE" --zone="$ZONE" --tunnel-through-iap --command="bash ~/node-prep.sh"
+done
+
+
+# ---- from Cloud Shell ----
+for NODE in k8s-worker-1 k8s-worker-2 k8s-controller; do
+  echo "=== $NODE ==="
+  gcloud compute ssh "$NODE" --zone="$ZONE" --tunnel-through-iap \
+    --command="sudo apt-get install -y conntrack socat"
+done
+
+
+--- controller setup ---
+
+# ---- on the controller ----
+sudo kubeadm init \
+  --pod-network-cidr=10.244.0.0/16 \
+  --apiserver-advertise-address=10.10.0.10 \
+  --apiserver-cert-extra-sans=127.0.0.1
+
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+kubectl get nodes #notready è normale
+
+# --- calico ---
+
+# Install the operator (note: create, not apply — the CRDs are too big for apply's annotation limit)
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/tigera-operator.yaml
+
+--- tigera yaml (crea il network) ---
+
+cat <<'EOF' | kubectl create -f -
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  calicoNetwork:
+    ipPools:
+    - name: default-ipv4-ippool
+      cidr: 10.244.0.0/16
+      encapsulation: VXLAN
+      natOutgoing: Enabled
+      nodeSelector: all()
+---
+apiVersion: operator.tigera.io/v1
+kind: APIServer
+metadata:
+  name: default
+spec: {}
+EOF
+
+#aspetta che I pod di calico convergano
+#il nodo controller sarà ready
+
+# --- join worker ---
+
+# ---- from Cloud Shell ----
+JOIN_CMD=$(gcloud compute ssh k8s-controller --zone="$ZONE" --tunnel-through-iap \
+  --command="sudo kubeadm token create --print-join-command" 2>/dev/null)
+
+echo "$JOIN_CMD"
+
+# l'output di questo comando sarà la join da effettuare sui worker
+
+# ---- from Cloud Shell ----
+for NODE in k8s-worker-1 k8s-worker-2; do
+  echo "======================  $NODE  ======================"
+  gcloud compute ssh "$NODE" --zone="$ZONE" --tunnel-through-iap --command="sudo $JOIN_CMD"
+done
+
+
+# FASE 3 - webapp (podinfo)
+# --- configuro kubectl in modo che sia eseguibile su cloud shell ---
+
+# 1. Repurpose the API firewall rule: the tunnel's packets arrive from the IAP range,
+#    not your laptop. (Your laptop never could reach the private node directly anyway.)
+gcloud compute firewall-rules update k8s-allow-api --source-ranges=35.235.240.0/20
+
+# 2. Copy the cluster credentials down from the controller (this is the user-owned
+#    copy we made in 4b, so no sudo needed).
+mkdir -p ~/.kube
+gcloud compute scp k8s-controller:~/.kube/config ~/.kube/config --zone="$ZONE" --tunnel-through-iap
+
+# 3. Point the kubeconfig at localhost — where the tunnel will listen. The API cert
+#    already trusts 127.0.0.1 because of the --apiserver-cert-extra-sans we set in 4a.
+sed -i 's#https://10.10.0.10:6443#https://127.0.0.1:6443#' ~/.kube/config
+
+# 4. Open the tunnel in the background.
+gcloud compute start-iap-tunnel k8s-controller 6443 \
+  --local-host-port=localhost:6443 --zone="$ZONE" > /tmp/tunnel.log 2>&1 &
+
+sleep 6   # give it a moment to establish
+
+# 5. Test.
+kubectl get nodes
+
+# --- deploy ---
+
+mkdir -p ~/k8s-app/base ~/k8s-app/overlays/dev ~/k8s-app/overlays/prod
+
+# ---------- base: the app, environment-agnostic ----------
+cat > ~/k8s-app/base/deployment.yaml <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo
+  labels:
+    app: podinfo
+spec:
+  replicas: 1                 # overlays override this
+  selector:
+    matchLabels:
+      app: podinfo
+  template:
+    metadata:
+      labels:
+        app: podinfo
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.14.1
+          ports:
+            - name: http
+              containerPort: 9898
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+EOF
+
+cat > ~/k8s-app/base/service.yaml <<'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: podinfo
+  labels:
+    app: podinfo
+spec:
+  type: ClusterIP           # overlays promote this to NodePort
+  selector:
+    app: podinfo
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+EOF
+
+cat > ~/k8s-app/base/kustomization.yaml <<'EOF'
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+EOF
+
+# ---------- dev overlay ----------
+cat > ~/k8s-app/overlays/dev/namespace.yaml <<'EOF'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webapp-dev
+EOF
+
+cat > ~/k8s-app/overlays/dev/kustomization.yaml <<'EOF'
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: webapp-dev
+resources:
+  - namespace.yaml
+  - ../../base
+labels:
+  - pairs: { env: dev }
+    includeSelectors: false
+replicas:
+  - name: podinfo
+    count: 2
+patches:
+  - target: { kind: Service, name: podinfo }
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30080
+EOF
+
+# ---------- prod overlay ----------
+cat > ~/k8s-app/overlays/prod/namespace.yaml <<'EOF'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webapp-prod
+EOF
+
+cat > ~/k8s-app/overlays/prod/kustomization.yaml <<'EOF'
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: webapp-prod
+resources:
+  - namespace.yaml
+  - ../../base
+labels:
+  - pairs: { env: prod }
+    includeSelectors: false
+replicas:
+  - name: podinfo
+    count: 3
+patches:
+  - target: { kind: Service, name: podinfo }
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30081
+EOF
+
+# --- apply e test webapp---
+
+kubectl apply -k ~/k8s-app/overlays/dev
+
+gcloud compute ssh k8s-worker-1 --zone="$ZONE" --tunnel-through-iap   --command="for i in 1 2 3 4; do curl -s localhost:30080 | grep -o '\"hostname\": \"[^\"]*\"'; done"
+
+#spiegazione: kube-proxy is a component running on every node that implements Kubernetes Services. We need it because a Service is just a stable virtual IP/port (a ClusterIP, or a NodePort on every node) — nothing actually listens there; kube-proxy is what makes that address route to real pods. It works by watching the API server for Services and their endpoints (the healthy pods) and programming the node's kernel packet-filtering rules (iptables by default) to DNAT any connection arriving at the Service address to one of those pods, picked at random per connection. So it's a node-level, Layer-4 load balancer over a Service's pods: it doesn't proxy traffic in userspace, it just installs kernel rules that rewrite the destination — which is why hitting a NodePort spreads connections across pods (and why the pick can land on a pod on another node).
+
+
+# FASE 4 - load balancers
+# --- load balancer + ingress-nginx (overkill per un'app sola, utile per path based routing o multiple app)
+
+#architettura
+Internet :80
+   │
+   ▼
+GCP external passthrough NLB  (L4: forwarding rule :80 → workers :80)
+   │
+   ▼
+ingress-nginx on each worker's host :80   (L7: reads Ingress objects, routes by host/path)
+   │
+   ▼
+podinfo ClusterIP Service → podinfo pods
+
+#comandi
+
+mkdir -p ~/k8s-ingress
+
+cat > ~/k8s-ingress/kustomization.yaml <<'EOF'
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.15.1/deploy/static/provider/baremetal/deploy.yaml
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: ingress-nginx-controller
+      namespace: ingress-nginx
+    patch: |-
+      - op: add
+        path: /spec/template/spec/hostNetwork
+        value: true
+      - op: add
+        path: /spec/template/spec/dnsPolicy
+        value: ClusterFirstWithHostNet
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: controller
+                topologyKey: kubernetes.io/hostname
+EOF
+
+kubectl apply -k ~/k8s-ingress
+
+cat > ~/k8s-app/overlays/dev/kustomization.yaml <<'EOF'
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: webapp-dev
+resources:
+  - namespace.yaml
+  - ../../base
+  - ingress.yaml
+labels:
+  - pairs: { env: dev }
+    includeSelectors: false
+replicas:
+  - name: podinfo
+    count: 2
+EOF
+
+cat > ~/k8s-app/overlays/dev/ingress.yaml <<'EOF'
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: podinfo
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: podinfo
+                port:
+                  number: 80
+EOF
+
+kubectl apply -k ~/k8s-app/overlays/dev
+
+# --- Load balancer esterno---
+
+# 1. A static regional external IP — your app's public address.
+gcloud compute addresses create k8s-ingress-ip --region="$REGION"
+INGRESS_IP=$(gcloud compute addresses describe k8s-ingress-ip --region="$REGION" --format="value(address)")
+echo "Public IP: $INGRESS_IP"
+
+# 2. Group the workers so the LB has something to point at.
+gcloud compute instance-groups unmanaged create k8s-workers-ig --zone="$ZONE"
+gcloud compute instance-groups unmanaged add-instances k8s-workers-ig \
+  --zone="$ZONE" --instances=k8s-worker-1,k8s-worker-2
+
+# 3. Health check: hit ingress-nginx's own health endpoint (:10254/healthz).
+gcloud compute health-checks create http k8s-ingress-hc \
+  --region="$REGION" --port=10254 --request-path=/healthz
+
+# 4. Regional external backend service (L4 passthrough, TCP), wired to the HC.
+gcloud compute backend-services create k8s-ingress-bes \
+  --load-balancing-scheme=EXTERNAL --protocol=TCP --region="$REGION" \
+  --health-checks=k8s-ingress-hc --health-checks-region="$REGION"
+gcloud compute backend-services add-backend k8s-ingress-bes \
+  --region="$REGION" --instance-group=k8s-workers-ig --instance-group-zone="$ZONE"
+
+# 5. Forwarding rule: public IP :80 -> backend. Passthrough preserves the port,
+#    so it lands on the workers' :80, exactly where nginx is listening.
+gcloud compute forwarding-rules create k8s-ingress-fr \
+  --region="$REGION" --load-balancing-scheme=EXTERNAL \
+  --address=k8s-ingress-ip --ip-protocol=TCP --ports=80 \
+  --backend-service=k8s-ingress-bes
+
+# --- firewall ---
+
+# public HTTP to the workers
+gcloud compute firewall-rules create k8s-allow-http \
+  --network=k8s-vpc --direction=INGRESS --action=ALLOW \
+  --rules=tcp:80 --source-ranges=0.0.0.0/0 --target-tags=k8s-worker
+
+# Google's health-check probers -> :80 and the ingress healthz :10254
+gcloud compute firewall-rules create k8s-allow-health-checks \
+  --network=k8s-vpc --direction=INGRESS --action=ALLOW \
+  --rules=tcp:80,tcp:10254 \
+  --source-ranges=130.211.0.0/22,35.191.0.0/16 --target-tags=k8s-worker
+
+# --- health check dava unhealthy: fix ---
+
+gcloud compute ssh k8s-worker-1 --zone="$ZONE" --tunnel-through-iap \
+  --command="sudo ss -tlnp | grep -E ':80|:10254'; echo '---'; curl -s -o /dev/null -w 'healthz code: %{http_code}\n' localhost:10254/healthz"
+
+gcloud compute health-checks create tcp k8s-ingress-hc-tcp \
+  --region="$REGION" --port=80
+
+gcloud compute backend-services update k8s-ingress-bes \
+  --region="$REGION" \
+  --health-checks=k8s-ingress-hc-tcp --health-checks-region="$REGION"
+
+# --- load balancer interno ---
+
+mkdir -p ~/k8s-app/overlays/internal
+
+cat > ~/k8s-app/overlays/internal/namespace.yaml <<'EOF'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: internal-api
+EOF
+
+cat > ~/k8s-app/overlays/internal/kustomization.yaml <<'EOF'
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: internal-api
+resources:
+  - namespace.yaml
+  - ../../base
+labels:
+  - pairs: { tier: internal }
+    includeSelectors: false
+replicas:
+  - name: podinfo
+    count: 2
+patches:
+  - target: { kind: Service, name: podinfo }
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30090
+EOF
+
+kubectl apply -k ~/k8s-app/overlays/internal
+kubectl get svc,pods -n internal-api -o wide
+
+# --- vm client interna alla vpc ---
+
+gcloud compute instances create k8s-internal-client \
+  --zone="$ZONE" \
+  --machine-type=e2-small \
+  --image-family=ubuntu-2204-lts --image-project=ubuntu-os-cloud \
+  --subnet=k8s-nodes --no-address \
+  --tags=internal-client
+
+# --- build load balancer ---
+
+# 1. Reserve an INTERNAL IP from your subnet — this is the LB's private VIP.
+gcloud compute addresses create k8s-internal-lb-ip \
+  --region="$REGION" --subnet=k8s-nodes --addresses=10.10.0.100
+
+# 2. Health check on the NodePort.
+gcloud compute health-checks create tcp k8s-internal-hc \
+  --region="$REGION" --port=30090
+
+# 3. Internal backend service (note the INTERNAL scheme), wired to the same worker group.
+gcloud compute backend-services create k8s-internal-bes \
+  --load-balancing-scheme=INTERNAL --protocol=TCP --region="$REGION" \
+  --health-checks=k8s-internal-hc --health-checks-region="$REGION"
+gcloud compute backend-services add-backend k8s-internal-bes \
+  --region="$REGION" --instance-group=k8s-workers-ig --instance-group-zone="$ZONE"
+
+# 4. Internal forwarding rule — private VIP :30090 -> workers :30090 (passthrough preserves the port).
+gcloud compute forwarding-rules create k8s-internal-fr \
+  --region="$REGION" --load-balancing-scheme=INTERNAL \
+  --address=k8s-internal-lb-ip --ip-protocol=TCP --ports=30090 \
+  --backend-service=k8s-internal-bes \
+  --network=k8s-vpc --subnet=k8s-nodes
+
+# --- firewall per health check interno ---
+
+gcloud compute firewall-rules create k8s-allow-hc-internal \
+  --network=k8s-vpc --direction=INGRESS --action=ALLOW \
+  --rules=tcp:30090 \
+  --source-ranges=130.211.0.0/22,35.191.0.0/16 --target-tags=k8s-worker
+
+# FASE 5 - persistent storage
+#lo attacco manualmente (no dynamic provisioning perché no CSI driver)
+
+gcloud compute disks create k8s-data-disk \
+  --zone="$ZONE" --size=10GB --type=pd-balanced
+
+gcloud compute instances attach-disk k8s-worker-1 \
+  --disk=k8s-data-disk --zone="$ZONE" --device-name=k8s-data-disk
+
+# -monto su worker1
+
+gcloud compute ssh k8s-worker-1 --zone="$ZONE" --tunnel-through-iap --command='
+  set -e
+  sudo mkdir -p /mnt/disks/k8s-data
+  sudo mkfs.ext4 -F /dev/disk/by-id/google-k8s-data-disk
+  echo "/dev/disk/by-id/google-k8s-data-disk /mnt/disks/k8s-data ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+  sudo mount -a
+  df -h /mnt/disks/k8s-data
+'
+
+# k8s manifest
+
+mkdir -p ~/k8s-storage
+
+# StorageClass with NO provisioner — we're binding pre-made volumes, not creating them.
+# WaitForFirstConsumer delays binding until a pod is scheduled, so the scheduler
+# respects the PV's node affinity.
+cat > ~/k8s-storage/storageclass.yaml <<'EOF'
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-storage
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+EOF
+
+# The PersistentVolume: "there is 10Gi at /mnt/disks/k8s-data, but ONLY on worker-1."
+cat > ~/k8s-storage/pv.yaml <<'EOF'
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pg-data-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  local:
+    path: /mnt/disks/k8s-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [k8s-worker-1]
+EOF
+
+# Namespace, DB password (Secret), the claim, and Postgres itself.
+cat > ~/k8s-storage/postgres.yaml <<'EOF'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: database
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pg-secret
+  namespace: database
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: supersecret
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pg-data
+  namespace: database
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: database
+spec:
+  replicas: 1
+  strategy: { type: Recreate }   # release the RWO volume before starting a new pod
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: pg-secret, key: POSTGRES_PASSWORD }
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata   # subdir avoids ext4's lost+found
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: pg-data
+EOF
+
+kubectl apply -f ~/k8s-storage/storageclass.yaml
+kubectl apply -f ~/k8s-storage/pv.yaml
+kubectl apply -f ~/k8s-storage/postgres.yaml
+
+# --- test persistenza: cancello il pod, dati devono rimanere ---
+
+# Write some data
+kubectl -n database exec deploy/postgres -- \
+  psql -U postgres -c "CREATE TABLE demo(id int, note text); INSERT INTO demo VALUES (1,'survives restart');"
+
+# Nuke the pod — the Deployment will make a fresh one
+kubectl -n database delete pod -l app=postgres
+kubectl -n database rollout status deploy/postgres
+
+# Read it back from the brand-new pod
+kubectl -n database exec deploy/postgres -- psql -U postgres -c "SELECT * FROM demo;"
+
+# FASE 6 - teardown
+
+# - fermo le istanze (per poi riaccenderle dopo)
+
+# park — end of day
+gcloud compute instances stop \
+  k8s-controller k8s-worker-1 k8s-worker-2 k8s-internal-client --zone="$ZONE"
+
+# wake — next session
+gcloud compute instances start \
+  k8s-controller k8s-worker-1 k8s-worker-2 k8s-internal-client --zone="$ZONE"
+
+# - full teardown
+
+# 1. Forwarding rules (they reference the backend services)
+gcloud compute forwarding-rules delete k8s-ingress-fr k8s-internal-fr --region="$REGION" --quiet
+
+# 2. Backend services (reference health checks + the instance group)
+gcloud compute backend-services delete k8s-ingress-bes k8s-internal-bes --region="$REGION" --quiet
+
+# 3. Health checks
+gcloud compute health-checks delete k8s-ingress-hc k8s-ingress-hc-tcp k8s-internal-hc --region="$REGION" --quiet
+
+# 4. Instance group
+gcloud compute instance-groups unmanaged delete k8s-workers-ig --zone="$ZONE" --quiet
+
+# 5. Reserved IPs
+gcloud compute addresses delete k8s-ingress-ip k8s-internal-lb-ip --region="$REGION" --quiet
+
+# 6. VMs (boot disks auto-delete; the data disk does not)
+gcloud compute instances delete k8s-controller k8s-worker-1 k8s-worker-2 k8s-internal-client --zone="$ZONE" --quiet
+
+# 7. The hand-created data disk
+gcloud compute disks delete k8s-data-disk --zone="$ZONE" --quiet
+
+# 8. Cloud NAT, then its router
+gcloud compute routers nats delete k8s-nat --router=k8s-router --region="$REGION" --quiet
+gcloud compute routers delete k8s-router --region="$REGION" --quiet
+
+# 9. Firewall rules
+gcloud compute firewall-rules delete \
+  k8s-allow-internal k8s-allow-ssh-iap k8s-allow-api \
+  k8s-allow-http k8s-allow-health-checks k8s-allow-hc-internal --quiet
+
+# 10. Subnet
+gcloud compute networks subnets delete k8s-nodes --region="$REGION" --quiet
+
+# 11. The VPC
+gcloud compute networks delete k8s-vpc --quiet
+
+# - controllo che nel billing non ci sia niente
